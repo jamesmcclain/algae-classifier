@@ -5,9 +5,10 @@ import torchvision as tv
 
 class AlgaeClassifier(torch.nn.Module):
     def __init__(self,
-                 imagery,
+                 imagery: str = 'aviris',
                  use_cheaplab: bool = True,
-                 backbone_str: str = None):
+                 backbone_str: str = None,
+                 pretrained: bool = False):
         super().__init__()
 
         self.imagery = imagery
@@ -32,7 +33,7 @@ class AlgaeClassifier(torch.nn.Module):
             m = n
 
         backbone = getattr(tv.models, self.backbone_str)
-        self.backbone = backbone(pretrained=True)
+        self.backbone = backbone(pretrained=pretrained)
 
         # Input and output
         if self.backbone_str == 'vgg16':
@@ -99,12 +100,13 @@ class AlgaeClassifier(torch.nn.Module):
             self.last = self.backbone.classifier[1] = torch.nn.Linear(
                 in_features=1280, out_features=1, bias=True)
         elif self.backbone_str in ['resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152']:
-            self.first = self.backbone.conv1 = torch.nn.Conv2d(m,
-                                                               64,
-                                                               kernel_size=(7, 7),
-                                                               stride=(2, 2),
-                                                               padding=(3, 3),
-                                                               bias=False)
+            self.first = self.backbone.conv1 = torch.nn.Conv2d(
+                m,
+                64,
+                kernel_size=(7, 7),
+                stride=(2, 2),
+                padding=(3, 3),
+                bias=False)
             in_features = self.backbone.fc.in_features
             self.last = self.backbone.fc = torch.nn.Linear(in_features, 1)
         else:
@@ -118,8 +120,12 @@ class AlgaeClassifier(torch.nn.Module):
         return out
 
 
-def make_algae_model(imagery: str, use_cheaplab: bool, backbone_str: str):
+def make_algae_model(imagery: str,
+                     use_cheaplab: bool,
+                     backbone_str: str,
+                     pretrained: bool):
     model = AlgaeClassifier(imagery=imagery,
                             use_cheaplab=use_cheaplab,
-                            backbone_str=backbone_str)
+                            backbone_str=backbone_str,
+                            pretrained=pretrained)
     return model
