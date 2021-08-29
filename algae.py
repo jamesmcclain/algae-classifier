@@ -143,7 +143,7 @@ class AlgaeClassifier(torch.nn.Module):
             raise Exception(f'Unknown backbone {self.backbone_str}')
 
         if self.use_cheaplab:
-            self.cheaplab = torch.hub.load('jamesmcclain/CheapLab:channels',
+            self.cheaplab = torch.hub.load('jamesmcclain/CheapLab:master',
                                            'make_cheaplab_model',
                                            num_channels=n,
                                            out_channels=3)
