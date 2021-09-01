@@ -5,11 +5,11 @@ import torchvision as tv
 
 class AlgaeClassifier(torch.nn.Module):
     def __init__(self,
-                 imagery: str = 'aviris',
-                 use_cheaplab: bool = True,
-                 backbone_str: str = None,
-                 pretrained: bool = False,
-                 prescale: int = 1):
+                 imagery: str,
+                 use_cheaplab: bool,
+                 backbone_str: str,
+                 pretrained: bool,
+                 prescale: int):
         super().__init__()
 
         self.imagery = imagery
@@ -26,11 +26,21 @@ class AlgaeClassifier(torch.nn.Module):
             raise Exception(f'unknown imagery type {self.imagery}')
 
         # Backbone
-        backbone = getattr(tv.models, self.backbone_str)
-        self.backbone = backbone(pretrained=pretrained)
+        if 'efficientnet_b' in self.backbone_str:
+            self.backbone = torch.hub.load(
+                'lukemelas/EfficientNet-PyTorch:7e8b0d312162f335785fb5dcfa1df29a75a1783a',
+                backbone_str,
+                num_classes=1,
+                in_channels=(3 if self.use_cheaplab else n),
+                pretrained=('imagenet' if pretrained else None))
+        else:
+            backbone = getattr(tv.models, self.backbone_str)
+            self.backbone = backbone(pretrained=pretrained)
 
         # First
-        if self.use_cheaplab:
+        if 'efficientnet_b' in self.backbone_str:
+            self.first = self.backbone._conv_stem
+        elif self.use_cheaplab:
             if self.backbone_str == 'vgg16':
                 self.first = self.backbone.features[0]
             elif self.backbone_str == 'squeezenet1_0':
@@ -80,9 +90,7 @@ class AlgaeClassifier(torch.nn.Module):
                     stride=(2, 2),
                     padding=(1, 1),
                     bias=False)
-            elif self.backbone_str in [
-                    'mobilenet_v3_large', 'mobilenet_v3_small'
-            ]:
+            elif self.backbone_str in ['mobilenet_v3_large', 'mobilenet_v3_small']:
                 self.first = self.backbone.features[0][0] = torch.nn.Conv2d(
                     n,
                     16,
@@ -98,10 +106,7 @@ class AlgaeClassifier(torch.nn.Module):
                     stride=(2, 2),
                     padding=(1, 1),
                     bias=False)
-            elif self.backbone_str in [
-                    'resnet18', 'resnet34', 'resnet50', 'resnet101',
-                    'resnet152'
-            ]:
+            elif self.backbone_str in ['resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152']:
                 self.first = self.backbone.conv1 = torch.nn.Conv2d(
                     n,
                     64,
@@ -113,7 +118,9 @@ class AlgaeClassifier(torch.nn.Module):
                 raise Exception(f'Unknown backbone {self.backbone_str}')
 
         # Last
-        if self.backbone_str == 'vgg16':
+        if 'efficientnet_b' in self.backbone_str:
+            self.last = self.backbone._fc
+        elif self.backbone_str == 'vgg16':
             self.last = self.backbone.classifier[6] = torch.nn.Linear(
                 in_features=4096, out_features=1, bias=True)
         elif self.backbone_str == 'squeezenet1_0':
@@ -123,9 +130,8 @@ class AlgaeClassifier(torch.nn.Module):
             self.last = self.backbone.classifier = torch.nn.Linear(
                 in_features=2208, out_features=1, bias=True)
         elif self.backbone_str == 'shufflenet_v2_x1_0':
-            self.last = self.backbone.fc = torch.nn.Linear(in_features=1024,
-                                                           out_features=1,
-                                                           bias=True)
+            self.last = self.backbone.fc = torch.nn.Linear(
+                in_features=1024, out_features=1, bias=True)
         elif self.backbone_str == 'mobilenet_v2':
             self.last = self.backbone.classifier[1] = torch.nn.Linear(
                 in_features=1280, out_features=1, bias=True)
@@ -136,9 +142,7 @@ class AlgaeClassifier(torch.nn.Module):
         elif self.backbone_str == 'mnasnet1_0':
             self.last = self.backbone.classifier[1] = torch.nn.Linear(
                 in_features=1280, out_features=1, bias=True)
-        elif self.backbone_str in [
-                'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152'
-        ]:
+        elif self.backbone_str in ['resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152']:
             in_features = self.backbone.fc.in_features
             self.last = self.backbone.fc = torch.nn.Linear(in_features, 1)
         else:
