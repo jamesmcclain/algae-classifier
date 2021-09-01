@@ -8,12 +8,14 @@ class AlgaeClassifier(torch.nn.Module):
                  imagery: str = 'aviris',
                  use_cheaplab: bool = True,
                  backbone_str: str = None,
-                 pretrained: bool = False):
+                 pretrained: bool = False,
+                 prescale: int = 1):
         super().__init__()
 
         self.imagery = imagery
         self.use_cheaplab = use_cheaplab
         self.backbone_str = backbone_str
+        self.prescale = prescale
 
         # Number of input bands
         if self.imagery == 'aviris':
@@ -149,17 +151,29 @@ class AlgaeClassifier(torch.nn.Module):
                                            out_channels=3)
 
     def forward(self, x):
+        [w, h] = x.shape[-2:]
         out = x
+
+        if self.prescale > 1:
+            out = torch.nn.functional.interpolate(
+                out,
+                size=[w * self.prescale, h * self.prescale],
+                mode='bilinear',
+                align_corners=False)
         if self.use_cheaplab:
             out = self.cheaplab(out)
         out = self.backbone(out)
         return out
 
 
-def make_algae_model(imagery: str, use_cheaplab: bool, backbone_str: str,
-                     pretrained: bool):
+def make_algae_model(imagery: str,
+                     use_cheaplab: bool,
+                     backbone_str: str,
+                     pretrained: bool,
+                     prescale: int):
     model = AlgaeClassifier(imagery=imagery,
                             use_cheaplab=use_cheaplab,
                             backbone_str=backbone_str,
-                            pretrained=pretrained)
+                            pretrained=pretrained,
+                            prescale=prescale)
     return model
