@@ -22,6 +22,8 @@ class AlgaeClassifier(torch.nn.Module):
             n = 224
         elif self.imagery == 'sentinel2':
             n = 12
+        elif self.imagery == 'planet':
+            n = 4
         else:
             raise Exception(f'unknown imagery type {self.imagery}')
 
