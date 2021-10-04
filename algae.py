@@ -64,9 +64,8 @@ class AlgaeClassifier(torch.nn.Module):
             self.last = self.backbone.classifier = torch.nn.Linear(
                 in_features=2208, out_features=1, bias=True)
         elif self.backbone_str == 'shufflenet_v2_x1_0':
-            self.last = self.backbone.fc = torch.nn.Linear(in_features=1024,
-                                                           out_features=1,
-                                                           bias=True)
+            self.last = self.backbone.fc = torch.nn.Linear(
+                in_features=1024, out_features=1, bias=True)
         elif self.backbone_str == 'mobilenet_v2':
             self.last = self.backbone.classifier[1] = torch.nn.Linear(
                 in_features=1280, out_features=1, bias=True)
@@ -83,12 +82,12 @@ class AlgaeClassifier(torch.nn.Module):
         else:
             raise Exception(f'Unknown backbone {self.backbone_str}')
 
-        self.cheaplab = {}
+        self.cheaplab = torch.nn.ModuleDict()
         for n in in_channels:
-            self.cheaplab[n] = torch.hub.load('jamesmcclain/CheapLab:master',
-                                              'make_cheaplab_model',
-                                              num_channels=n,
-                                              out_channels=3)
+            self.cheaplab[str(n)] = torch.hub.load('jamesmcclain/CheapLab:master',
+                                                   'make_cheaplab_model',
+                                                   num_channels=n,
+                                                   out_channels=3)
 
     def forward(self, x):
         [w, h] = x.shape[-2:]
@@ -101,7 +100,7 @@ class AlgaeClassifier(torch.nn.Module):
                 size=[w * self.prescale, h * self.prescale],
                 mode='bilinear',
                 align_corners=False)
-        cheaplab = self.cheaplab.get(n)
+        cheaplab = self.cheaplab.get(str(n))
         if cheaplab is None:
             raise Exception(f"no CheapLab for {n} channels")
         out = cheaplab(out)
