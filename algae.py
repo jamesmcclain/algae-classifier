@@ -100,7 +100,7 @@ class AlgaeClassifier(torch.nn.Module):
                 size=[w * self.prescale, h * self.prescale],
                 mode='bilinear',
                 align_corners=False)
-        cheaplab = self.cheaplab.get(str(n))
+        cheaplab = self.cheaplab[str(n)]
         if cheaplab is None:
             raise Exception(f"no CheapLab for {n} channels")
         out = cheaplab(out)
