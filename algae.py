@@ -115,7 +115,7 @@ class AlgaeClassifier(torch.nn.Module):
         self.cheaplab = torch.nn.ModuleDict()
         for n in in_channels:
             self.cheaplab[str(n)] = torch.hub.load(
-                'jamesmcclain/CheapLab:master',
+                'jamesmcclain/CheapLab:38af8e6cd084fc61792f29189158919c69d58c6a',
                 'make_cheaplab_model',
                 num_channels=n,
                 out_channels=3)
