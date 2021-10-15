@@ -6,12 +6,16 @@ import torchvision as tv
 
 
 class AlgaeSegmentationToClassification(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, chip_size: int = 32):
         super().__init__()
-        self.pool = torch.nn.AdaptiveAvgPool2d(1)
-        self.conv2d = torch.nn.Conv2d(in_channels=2, out_channels=1, kernel_size=1, bias=True).to('cuda')
+        self.pool = torch.nn.AdaptiveAvgPool2d(output_size=1)
+        self.conv2d = torch.nn.Conv2d(in_channels=1,
+                                      out_channels=1,
+                                      kernel_size=1,
+                                      bias=True)
 
     def forward(self, x):
+        x = x[:, [1], :, :]
         x = self.pool(x)
         x = self.conv2d(x)
         return x
