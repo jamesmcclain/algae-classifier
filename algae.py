@@ -6,12 +6,16 @@ import torchvision as tv
 
 
 class AlgaeSegmentationToClassification(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, chip_size: int = 32):
         super().__init__()
-        self.pool = torch.nn.AdaptiveAvgPool2d(1)
-        self.conv2d = torch.nn.Conv2d(in_channels=2, out_channels=1, kernel_size=1, bias=True).to('cuda')
+        self.pool = torch.nn.AdaptiveAvgPool2d(output_size=1)
+        self.conv2d = torch.nn.Conv2d(in_channels=1,
+                                      out_channels=1,
+                                      kernel_size=1,
+                                      bias=True)
 
     def forward(self, x):
+        x = x[:, [1], :, :]
         x = self.pool(x)
         x = self.conv2d(x)
         return x
@@ -41,7 +45,19 @@ class AlgaeClassifier(torch.nn.Module):
                 fpn_channels=256,
                 in_channels=3,
                 out_size=(chip_size, chip_size))
-            self.seg_to_class = AlgaeSegmentationToClassification()
+            self.seg_to_class = AlgaeSegmentationToClassification(chip_size=chip_size)
+        elif 'fpn' in self.backbone_str and 'efficientnet' in self.backbone_str:
+            bb = '_'.join(self.backbone_str.split('_')[-2:])
+            self.backbone = torch.hub.load(
+                'AdeelH/pytorch-fpn:98c2ea43a9b0118c2e1dc29497bf6c832da5706b',
+                'make_fpn_efficientnet',
+                name=bb,
+                fpn_type='panoptic',
+                num_classes=2,
+                fpn_channels=256,
+                in_channels=3,
+                out_size=(chip_size, chip_size))
+            self.seg_to_class = AlgaeSegmentationToClassification(chip_size=chip_size)
         elif 'efficientnet_b' in self.backbone_str:
             self.backbone = torch.hub.load(
                 'lukemelas/EfficientNet-PyTorch:7e8b0d312162f335785fb5dcfa1df29a75a1783a',
@@ -56,6 +72,8 @@ class AlgaeClassifier(torch.nn.Module):
         # First
         if 'fpn' in self.backbone_str and 'resnet' in self.backbone_str:
             self.first = self.backbone[0].m[0][0]
+        elif 'fpn' in self.backbone_str and 'efficientnet' in self.backbone_str:
+            self.first = self.backbone[0].m._conv_stem
         elif 'efficientnet_b' in self.backbone_str:
             self.first = self.backbone._conv_stem
         else:
@@ -82,7 +100,7 @@ class AlgaeClassifier(torch.nn.Module):
         if 'fpn' in self.backbone_str and 'resnet' in self.backbone_str:
             self.last = self.seg_to_class
         elif 'efficientnet_b' in self.backbone_str:
-            self.last = self.backbone._fc
+            self.last = self.seg_to_class
         elif self.backbone_str == 'vgg16':
             self.last = self.backbone.classifier[6] = torch.nn.Linear(
                 in_features=4096, out_features=1, bias=True)
