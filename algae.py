@@ -38,6 +38,7 @@ def unfreeze(m: nn.Module) -> nn.Module:
 
 class AlgaeClassifier(torch.nn.Module):
     def __init__(self,
+                 in_channels: Optional[List[int]],
                  chip_size = 512,
                  num_outs: List[int] = [1],
                  backbone: str = 'resnet50',
@@ -146,10 +147,20 @@ class AlgaeClassifier(torch.nn.Module):
         return {'seg_out': seg_out, 'cls_out': cls_out}
 
 
-def make_algae_model(in_channels: List[int], backbone_str: str,
-                     pretrained: bool, prescale: int):
-    model = AlgaeClassifier(in_channels=in_channels,
-                            backbone_str=backbone_str,
-                            pretrained=pretrained,
-                            prescale=prescale)
+def make_algae_model(
+        in_channels: Optional[List[int]],
+        chip_size = 512,
+        num_outs: List[int] = [1],
+        backbone: str = 'resnet50',
+        pretrained: bool = True,
+        canonical_size: Optional[List[int]] = None,
+        num_classes = 5):
+    model = AlgaeClassifier(
+        in_channels,
+        chip_size,
+        num_outs,
+        backbone,
+        pretrained,
+        canonical_size,
+        num_classes)
     return model
