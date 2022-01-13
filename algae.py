@@ -2,6 +2,7 @@ from typing import List, Optional
 
 import torch
 import torch.hub
+import torch.nn.functional as F
 import torchvision as tv
 from torch import nn
 
