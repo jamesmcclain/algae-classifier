@@ -1,136 +1,89 @@
-from typing import List
+from typing import List, Optional
 
 import torch
 import torch.hub
+import torch.nn.functional as F
 import torchvision as tv
+from torch import nn
 
 
-class AlgaeSegmentationToClassification(torch.nn.Module):
-    def __init__(self, chip_size: int = 32):
-        super().__init__()
-        self.pool = torch.nn.AdaptiveAvgPool2d(output_size=1)
-        self.conv2d = torch.nn.Conv2d(in_channels=1,
-                                      out_channels=1,
-                                      kernel_size=1,
-                                      bias=True)
-
-    def forward(self, x):
-        x = x[:, [1], :, :]
-        x = self.pool(x)
-        x = self.conv2d(x)
-        return x
+# https://discuss.pytorch.org/t/how-to-freeze-bn-layers-while-training-the-rest-of-network-mean-and-var-wont-freeze/89736/9
+def freeze_bn(m):
+    for (name, child) in m.named_children():
+        if isinstance(child, nn.BatchNorm2d):
+            for param in child.parameters():
+                param.requires_grad = False
+            child.eval()
+        else:
+            freeze_bn(child)
 
 
-class AlgaeClassifier(torch.nn.Module):
+def unfreeze_bn(m):
+    for (name, child) in m.named_children():
+        if isinstance(child, nn.BatchNorm2d):
+            for param in child.parameters():
+                param.requires_grad = True
+            child.train()
+        else:
+            unfreeze_bn(child)
+
+
+def freeze(m: nn.Module) -> nn.Module:
+    for p in m.parameters():
+        p.requires_grad = False
+
+
+def unfreeze(m: nn.Module) -> nn.Module:
+    for p in m.parameters():
+        p.requires_grad = True
+
+
+class AlgaeClassifier(nn.Module):
     def __init__(self,
-                 in_channels: List[int],
-                 backbone_str: str,
-                 pretrained: bool,
-                 prescale: int,
-                 chip_size: int = 32):
+                 in_channels: Optional[List[int]],
+                 chip_size = 512,
+                 num_outs: List[int] = [1],
+                 backbone: str = 'resnet50',
+                 pretrained: bool = True,
+                 canonical_size: Optional[List[int]] = None,
+                 num_classes = 5):
+
         super().__init__()
 
-        self.backbone_str = backbone_str
-        self.prescale = prescale
+        assert num_outs is None or isinstance(num_outs, list)
+        assert backbone in {'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152'}
+        assert isinstance(pretrained, bool)
+        assert canonical_size is None or (isinstance(canonical_size, list) and len(canonical_size) == 2)
 
-        # Backbone
-        if 'fpn' in self.backbone_str and 'resnet' in self.backbone_str:
-            bb = self.backbone_str.split('_')[-1]
-            self.backbone = torch.hub.load(
-                'AdeelH/pytorch-fpn:98c2ea43a9b0118c2e1dc29497bf6c832da5706b',
-                'make_fpn_resnet',
-                name=bb,
-                fpn_type='panoptic',
-                num_classes=2,
-                fpn_channels=256,
-                in_channels=3,
-                out_size=(chip_size, chip_size))
-            self.seg_to_class = AlgaeSegmentationToClassification(chip_size=chip_size)
-        elif 'fpn' in self.backbone_str and 'efficientnet' in self.backbone_str:
-            bb = '_'.join(self.backbone_str.split('_')[-2:])
-            self.backbone = torch.hub.load(
-                'AdeelH/pytorch-fpn:98c2ea43a9b0118c2e1dc29497bf6c832da5706b',
-                'make_fpn_efficientnet',
-                name=bb,
-                fpn_type='panoptic',
-                num_classes=2,
-                fpn_channels=256,
-                in_channels=3,
-                out_size=(chip_size, chip_size))
-            self.seg_to_class = AlgaeSegmentationToClassification(chip_size=chip_size)
-        elif 'efficientnet_b' in self.backbone_str:
-            self.backbone = torch.hub.load(
-                'lukemelas/EfficientNet-PyTorch:7e8b0d312162f335785fb5dcfa1df29a75a1783a',
-                backbone_str,
-                num_classes=1,
-                in_channels=3,
-                pretrained=('imagenet' if pretrained else None))
-        else:
-            backbone = getattr(tv.models, self.backbone_str)
-            self.backbone = backbone(pretrained=pretrained)
+        self.chip_size = 512
+        self.canonical_size = canonical_size
+        if self.canonical_size is None:
+            self.canonical_size = [chip_size, chip_size]
+        self.num_outs = num_outs
 
-        # First
-        if 'fpn' in self.backbone_str and 'resnet' in self.backbone_str:
-            self.first = self.backbone[0].m[0][0]
-        elif 'fpn' in self.backbone_str and 'efficientnet' in self.backbone_str:
-            self.first = self.backbone[0].m._conv_stem
-        elif 'efficientnet_b' in self.backbone_str:
-            self.first = self.backbone._conv_stem
-        else:
-            if self.backbone_str == 'vgg16':
-                self.first = self.backbone.features[0]
-            elif self.backbone_str == 'squeezenet1_0':
-                self.first = self.backbone.features[0]
-            elif self.backbone_str == 'densenet161':
-                self.first = self.backbone.features.conv0
-            elif self.backbone_str == 'shufflenet_v2_x1_0':
-                self.first = self.backbone.conv1[0]
-            elif self.backbone_str == 'mobilenet_v2':
-                self.first = self.backbone.features[0][0]
-            elif self.backbone_str in ['mobilenet_v3_large', 'mobilenet_v3_small']:
-                self.first = self.backbone.features[0][0]
-            elif self.backbone_str == 'mnasnet1_0':
-                self.first = self.backbone.layers[0]
-            elif self.backbone_str in ['resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152']:
-                self.first = self.backbone.conv1
-            else:
-                raise Exception(f'Unknown backbone {self.backbone_str}')
+        fpn = torch.hub.load(
+            'jamesmcclain/pytorch-fpn:b3aa82014641c9b461f8a68bf1e73c882b9156ba',
+            'make_fpn_resnet',
+            name=backbone,
+            fpn_type='fpn',
+            num_classes=num_classes,
+            fpn_channels=256,
+            in_channels=3,
+            out_size=self.canonical_size,
+            pretrained=pretrained)
+        self.backbone = fpn[0]
+        self.rest = nn.Sequential(fpn[1], fpn[2])
 
-        # Last
-        if 'fpn' in self.backbone_str and 'resnet' in self.backbone_str:
-            self.last = self.seg_to_class
-        elif 'efficientnet_b' in self.backbone_str:
-            self.last = self.seg_to_class
-        elif self.backbone_str == 'vgg16':
-            self.last = self.backbone.classifier[6] = torch.nn.Linear(
-                in_features=4096, out_features=1, bias=True)
-        elif self.backbone_str == 'squeezenet1_0':
-            self.last = self.backbone.classifier[1] = torch.nn.Conv2d(
-                512, 1, kernel_size=(1, 1), stride=(1, 1))
-        elif self.backbone_str == 'densenet161':
-            self.last = self.backbone.classifier = torch.nn.Linear(
-                in_features=2208, out_features=1, bias=True)
-        elif self.backbone_str == 'shufflenet_v2_x1_0':
-            self.last = self.backbone.fc = torch.nn.Linear(in_features=1024,
-                                                           out_features=1,
-                                                           bias=True)
-        elif self.backbone_str == 'mobilenet_v2':
-            self.last = self.backbone.classifier[1] = torch.nn.Linear(
-                in_features=1280, out_features=1, bias=True)
-        elif self.backbone_str in ['mobilenet_v3_large', 'mobilenet_v3_small']:
-            in_features = self.backbone.classifier[0].out_features
-            self.last = self.backbone.classifier[3] = torch.nn.Linear(
-                in_features=in_features, out_features=1, bias=True)
-        elif self.backbone_str == 'mnasnet1_0':
-            self.last = self.backbone.classifier[1] = torch.nn.Linear(
-                in_features=1280, out_features=1, bias=True)
-        elif self.backbone_str in ['resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152']:
-            in_features = self.backbone.fc.in_features
-            self.last = self.backbone.fc = torch.nn.Linear(in_features, 1)
-        else:
-            raise Exception(f'Unknown backbone {self.backbone_str}')
+        self.pool_n = 16
+        self.avgpool0 = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        self.avgpool1 = nn.AdaptiveAvgPool2d(output_size=(self.pool_n, self.pool_n))
+        self.maxpool = nn.AdaptiveMaxPool2d(output_size=(self.pool_n, self.pool_n))
+        self.bb_features = self.backbone.m[-1][-1].conv1.in_channels
+        self.seg_size = num_classes * self.pool_n * self.pool_n
 
-        self.cheaplab = torch.nn.ModuleDict()
+        self.reset_fcs(num_outs)
+
+        self.cheaplab = nn.ModuleDict()
         for n in in_channels:
             self.cheaplab[str(n)] = torch.hub.load(
                 'jamesmcclain/CheapLab:38af8e6cd084fc61792f29189158919c69d58c6a',
@@ -138,39 +91,86 @@ class AlgaeClassifier(torch.nn.Module):
                 num_channels=n,
                 out_channels=3)
 
-    def forward(self, x):
-        [w, h] = x.shape[-2:]
-        n = x.shape[-3]
-        out = x
+        assert self.canonical_size is not None
 
-        if self.prescale > 1:
-            out = torch.nn.functional.interpolate(
-                out,
-                size=[w * self.prescale, h * self.prescale],
-                mode='bilinear',
-                align_corners=False)
+    def reset_fcs(self, num_outs: List[int]) -> None:
+        fcs = []
+        self.num_outs = num_outs
+        if num_outs is not None:
+            for (i, num_out) in enumerate(num_outs):
+                if i == 0:
+                    in_features = self.bb_features + self.seg_size + self.seg_size
+                    fcs.append(nn.Linear(in_features, num_out, bias=True))
+                else:
+                    fcs.append(nn.Linear(fcs[-1].out_features, num_out, bias=True))
+        self.fcs = nn.ModuleList(fcs)
+
+    def finetune_mode(self) -> None:
+        freeze(self.cheaplab)
+        freeze(self.backbone)
+        freeze(self.rest)
+        unfreeze(self.fcs)
+
+    def whole_mode(self) -> None:
+        unfreeze(self.cheaplab)
+        unfreeze(self.backbone)
+        unfreeze(self.rest)
+        unfreeze(self.fcs)
+
+    def freeze_bn(self) -> None:
+        freeze_bn(self.cheaplab)
+        freeze_bn(self.backbone)
+        freeze_bn(self.rest)
+
+    def unfreeze_bn(self) -> None:
+        unfreeze_bn(self.cheaplab)
+        unfreeze_bn(self.backbone)
+        unfreeze_bn(self.rest)
+
+    def freeze_cheaplab(self) -> None:
+        freeze_bn(self.cheaplab)
+        freeze(self.cheaplab)
+
+    def forward(self, x):
+        n = x.shape[-3]
         cheaplab = self.cheaplab[str(n)]
         if cheaplab is None:
             raise Exception(f"no CheapLab for {n} channels")
-        out = cheaplab(out)
-        out = self.backbone(out)
+        x = cheaplab(x)
 
-        [w, h] = out.shape[-2:]
-        if len(out.shape) == 4 and w > 1 and h > 1 and w == h:
-            _out = out
-            out = {}
-            out.update({'class': self.seg_to_class(_out)})
-            out.update({'seg': _out})
-        else:
-            out = {'class': out}
+        x = F.interpolate(x, size=self.canonical_size, mode='bilinear', align_corners=True)
+        x = self.backbone(x)
+        seg_out = self.rest(x)
+        seg_out = F.interpolate(seg_out, size=self.canonical_size, mode='bilinear', align_corners=True)
+        x = self.avgpool0(x[-1])
+        x = x.reshape(-1, self.bb_features)
+        y = seg_out.softmax(dim=1)
+        y0 = self.avgpool1(y).reshape(-1, self.seg_size)
+        y1 = self.maxpool(y).reshape(-1, self.seg_size)
+        x = torch.cat([x, y0, y1], dim=1)
+        cls_out = {}
+        for (i, fc) in enumerate(self.fcs):
+            if i == 0:
+                cls_out.update({str(i): fc(x)})
+            else:
+                cls_out.update({str(i): fc(cls_out.get(str(i-1)))})
+        return {'seg_out': seg_out, 'cls_out': cls_out}
 
-        return out
 
-
-def make_algae_model(in_channels: List[int], backbone_str: str,
-                     pretrained: bool, prescale: int):
-    model = AlgaeClassifier(in_channels=in_channels,
-                            backbone_str=backbone_str,
-                            pretrained=pretrained,
-                            prescale=prescale)
+def make_algae_model(
+        in_channels: Optional[List[int]],
+        chip_size = 512,
+        num_outs: List[int] = [1],
+        backbone: str = 'resnet50',
+        pretrained: bool = True,
+        canonical_size: Optional[List[int]] = None,
+        num_classes = 5):
+    model = AlgaeClassifier(
+        in_channels,
+        chip_size,
+        num_outs,
+        backbone,
+        pretrained,
+        canonical_size,
+        num_classes)
     return model
