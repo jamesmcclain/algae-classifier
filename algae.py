@@ -3,12 +3,13 @@ from typing import List
 import torch
 import torch.hub
 import torchvision as tv
+from torch import nn
 
 
 # https://discuss.pytorch.org/t/how-to-freeze-bn-layers-while-training-the-rest-of-network-mean-and-var-wont-freeze/89736/9
 def freeze_bn(m):
     for (name, child) in m.named_children():
-        if isinstance(child, torch.nn.BatchNorm2d):
+        if isinstance(child, nn.BatchNorm2d):
             for param in child.parameters():
                 param.requires_grad = False
             child.eval()
@@ -18,7 +19,7 @@ def freeze_bn(m):
 
 def unfreeze_bn(m):
     for (name, child) in m.named_children():
-        if isinstance(child, torch.nn.BatchNorm2d):
+        if isinstance(child, nn.BatchNorm2d):
             for param in child.parameters():
                 param.requires_grad = True
             child.train()
@@ -26,17 +27,17 @@ def unfreeze_bn(m):
             unfreeze_bn(child)
 
 
-def freeze(m: torch.nn.Module) -> nn.Module:
+def freeze(m: nn.Module) -> nn.Module:
     for p in m.parameters():
         p.requires_grad = False
 
 
-def unfreeze(m: torch.nn.Module) -> nn.Module:
+def unfreeze(m: nn.Module) -> nn.Module:
     for p in m.parameters():
         p.requires_grad = True
 
 
-class AlgaeClassifier(torch.nn.Module):
+class AlgaeClassifier(nn.Module):
     def __init__(self,
                  in_channels: Optional[List[int]],
                  chip_size = 512,
@@ -70,7 +71,7 @@ class AlgaeClassifier(torch.nn.Module):
             out_size=self.canonical_size,
             pretrained=pretrained)
         self.backbone = fpn[0]
-        self.rest = torch.nn.Sequential(fpn[1], fpn[2])
+        self.rest = nn.Sequential(fpn[1], fpn[2])
 
         self.pool_n = 16
         self.avgpool0 = nn.AdaptiveAvgPool2d(output_size=(1, 1))
@@ -81,7 +82,7 @@ class AlgaeClassifier(torch.nn.Module):
 
         self.reset_fcs(num_outs)
 
-        self.cheaplab = torch.nn.ModuleDict()
+        self.cheaplab = nn.ModuleDict()
         for n in in_channels:
             self.cheaplab[str(n)] = torch.hub.load(
                 'jamesmcclain/CheapLab:38af8e6cd084fc61792f29189158919c69d58c6a',
