@@ -106,22 +106,30 @@ class AlgaeClassifier(nn.Module):
         self.fcs = nn.ModuleList(fcs)
 
     def finetune_mode(self) -> None:
+        freeze(self.cheaplab)
         freeze(self.backbone)
         freeze(self.rest)
         unfreeze(self.fcs)
 
     def whole_mode(self) -> None:
+        unfreeze(self.cheaplab)
         unfreeze(self.backbone)
         unfreeze(self.rest)
         unfreeze(self.fcs)
 
     def freeze_bn(self) -> None:
+        freeze_bn(self.cheaplab)
         freeze_bn(self.backbone)
         freeze_bn(self.rest)
 
     def unfreeze_bn(self) -> None:
+        unfreeze_bn(self.cheaplab)
         unfreeze_bn(self.backbone)
         unfreeze_bn(self.rest)
+
+    def freeze_cheaplab(self) -> None:
+        freeze_bn(self.cheaplab)
+        freeze(self.cheaplab)
 
     def forward(self, x):
         n = x.shape[-3]
