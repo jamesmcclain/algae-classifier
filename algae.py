@@ -26,12 +26,12 @@ def unfreeze_bn(m):
             unfreeze_bn(child)
 
 
-def freeze(m: nn.Module) -> nn.Module:
+def freeze(m: torch.nn.Module) -> nn.Module:
     for p in m.parameters():
         p.requires_grad = False
 
 
-def unfreeze(m: nn.Module) -> nn.Module:
+def unfreeze(m: torch.nn.Module) -> nn.Module:
     for p in m.parameters():
         p.requires_grad = True
 
